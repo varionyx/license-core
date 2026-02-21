@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify commit signatures (main / PR)
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            range="${{ github.event.before }}..${{ github.sha }}"
+            [ -z "${{ github.event.before }}" ] && range="HEAD"
+            commits=$(git rev-list $range 2>/dev/null || echo "HEAD")
+          else
+            commits=$(git log --format=%H ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || git rev-list -n 1 HEAD)
+          fi
+          for c in $commits; do
+            status=$(git log -1 --format="%G?" "$c" 2>/dev/null)
+            case "$status" in
+              G|U) ;; # Good or good with unknown validity (key not in keyring)
+              *) echo "::error::Commit $c is not signed (gpgsig status=$status). license-core requires signed commits."; exit 1;;
+            esac
+          done
+          echo "Commit signature check passed"
+      - name: Verify tag signature (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          if ! git verify-tag "$tag" 2>/dev/null; then
+            status=$(git cat-file tag "$tag" 2>/dev/null | grep -q gpgsig && echo "has_sig" || echo "no_sig")
+            if [ "$status" = "no_sig" ]; then
+              echo "::error::Tag $tag is not signed. license-core requires signed tags."
+              exit 1
+            fi
+            echo "Tag has signature (crypto verification may require key in keyring)"
+          else
+            echo "Tag signature verification passed"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Reject path or patch in Cargo.toml
+        run: |
+          if grep -E 'path\s*=' Cargo.toml; then echo "::error::Cargo.toml must not contain path dependency"; exit 1; fi
+          if grep -E '\[patch' Cargo.toml; then echo "::error::Cargo.toml must not contain [patch]"; exit 1; fi
+      - name: SemVer validation
+        run: |
+          V=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"\(.*\)".*/\1/')
+          if ! echo "$V" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then echo "::error::Cargo.toml version must be valid SemVer (X.Y.Z)"; exit 1; fi
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+      - run: cargo test
+      - name: Supply chain (cargo-deny)
+        run: |
+          cargo install cargo-deny --locked
+          cargo deny check
+      - name: SBOM
+        run: |
+          cargo install cargo-cyclonedx --locked
+          cargo cyclonedx Cargo.toml --output sbom.json
+          echo "SBOM written to sbom.json"
+      - name: Security audit (blocking)
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit

@@ -1,0 +1,13 @@
+[package]
+name = "license-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ed25519-dalek = "1"
+semver = "1"
+time = { version = "0.3", features = ["formatting"] }
+tracing = "0.1"
+base64 = "0.21"

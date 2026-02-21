@@ -1,0 +1,10 @@
+# Supply chain: deny wildcards, unknown registries. No git deps.
+[bans]
+multiple_versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = false
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["crates-io"]
