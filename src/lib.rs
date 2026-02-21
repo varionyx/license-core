@@ -45,7 +45,8 @@ fn public_key_base64() -> Result<String, String> {
         })
     } else {
         std::env::var("PROD_PUBLIC_KEY").map_err(|_| {
-            "PROD_PUBLIC_KEY is not set. Production requires a valid production public key.".to_string()
+            "PROD_PUBLIC_KEY is not set. Production requires a valid production public key."
+                .to_string()
         })
     }
 }
@@ -99,13 +100,15 @@ pub fn validate_license() -> Result<(), String> {
     let path = std::env::var("LICENSE_PATH").unwrap_or_else(|_| "license.json".to_string());
     let contents = std::fs::read_to_string(&path)
         .map_err(|e| format!("Cannot read license file {}: {}", path, e))?;
-    let signed: SignedLicenseFile = serde_json::from_str(&contents)
-        .map_err(|e| format!("Invalid license format: {}", e))?;
+    let signed: SignedLicenseFile =
+        serde_json::from_str(&contents).map_err(|e| format!("Invalid license format: {}", e))?;
 
     // Canonicalization guard: payload must match canonical serialization exactly.
     let canonical = serialize_license_canonical(&signed.payload)?;
     if canonical != signed.signed_payload_utf8 {
-        return Err("signed_payload_utf8 does not match canonical payload serialization".to_string());
+        return Err(
+            "signed_payload_utf8 does not match canonical payload serialization".to_string(),
+        );
     }
 
     let public_key_b64 = public_key_base64()?;
