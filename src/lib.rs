@@ -25,6 +25,12 @@ pub struct SignedLicenseFile {
     pub signature_base64: String,
 }
 
+/// Canonical JSON serialization for license payload.
+/// Uses deterministic field order from the struct definition and no extra whitespace.
+pub fn serialize_license_canonical(payload: &License) -> Result<String, String> {
+    serde_json::to_string(payload).map_err(|e| format!("Canonical serialization failed: {}", e))
+}
+
 /// Select which public key to use. DEV key only when LICENSE_DEV_MODE=true.
 /// No key is compiled in; both come from environment at runtime.
 fn public_key_base64() -> Result<String, String> {
@@ -96,6 +102,12 @@ pub fn validate_license() -> Result<(), String> {
     let signed: SignedLicenseFile = serde_json::from_str(&contents)
         .map_err(|e| format!("Invalid license format: {}", e))?;
 
+    // Canonicalization guard: payload must match canonical serialization exactly.
+    let canonical = serialize_license_canonical(&signed.payload)?;
+    if canonical != signed.signed_payload_utf8 {
+        return Err("signed_payload_utf8 does not match canonical payload serialization".to_string());
+    }
+
     let public_key_b64 = public_key_base64()?;
     verify_ed25519_signature(
         signed.signed_payload_utf8.as_bytes(),
@@ -112,10 +124,28 @@ pub fn validate_license() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn sample_license() -> License {
+        License {
+            license_id: "LIC-1".to_string(),
+            tenant_id: "tenant-1".to_string(),
+            issued_at: "2024-01-01T00:00:00Z".to_string(),
+            expires_at: "2099-01-01T00:00:00Z".to_string(),
+            grace_days: 30,
+            platform_version: Some(">=1.0.0".to_string()),
+        }
+    }
 
     #[test]
     fn test_validate_semver() {
         assert!(validate_semver("1.2.3", ">=1.0.0").is_ok());
         assert!(validate_semver("0.9.0", ">=1.0.0").is_err());
+    }
+
+    #[test]
+    fn test_canonical_serialization_is_deterministic() {
+        let license = sample_license();
+        let a = serialize_license_canonical(&license).expect("serialize a");
+        let b = serialize_license_canonical(&license).expect("serialize b");
+        assert_eq!(a, b);
     }
 }
