@@ -1,6 +1,6 @@
 # Supply chain: deny wildcards, unknown registries. No git deps.
 [bans]
-multiple_versions = "warn"
+multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = false
 
