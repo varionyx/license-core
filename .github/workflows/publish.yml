@@ -1,0 +1,71 @@
+# Publish license-core to registry index (this repo) and GitHub Releases.
+# Trigger: push tag v* (e.g. v0.1.0).
+# No Cargo API server: we update the git index and upload .crate to Releases.
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo --version
+
+      - name: Package crate
+        run: cargo package --allow-dirty --no-verify
+      - name: Get package path and checksum
+        id: pkg
+        run: |
+          CRATE=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+          VERS=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          CRATE_FILE="target/package/${CRATE}-${VERS}.crate"
+          echo "crate=$CRATE" >> $GITHUB_OUTPUT
+          echo "vers=$VERS" >> $GITHUB_OUTPUT
+          echo "crate_file=$CRATE_FILE" >> $GITHUB_OUTPUT
+          echo "cksum=$(sha256sum "$CRATE_FILE" | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Create release and upload .crate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          gh release create "$TAG" "${{ steps.pkg.outputs.crate_file }}" \
+            --title "$TAG" \
+            --notes "license-core ${{ steps.pkg.outputs.vers }}"
+
+      - name: Checkout main for index update
+        run: |
+          git fetch origin main master 2>/dev/null || true
+          git checkout main 2>/dev/null || git checkout master
+      - name: Update registry index
+        run: |
+          CRATE="${{ steps.pkg.outputs.crate }}"
+          VERS="${{ steps.pkg.outputs.vers }}"
+          CKSUM="${{ steps.pkg.outputs.cksum }}"
+          LOWER=$(echo "$CRATE" | tr '[:upper:]' '[:lower:]')
+          PREFIX1="${LOWER:0:2}"
+          PREFIX2="${LOWER:2:2}"
+          INDEX_DIR="$PREFIX1/$PREFIX2"
+          INDEX_FILE="$INDEX_DIR/$CRATE"
+          mkdir -p "$INDEX_DIR"
+          echo '{"dl":"https://github.com/varionyx/license-core/releases/download/v{version}/license-core-{version}.crate","auth-required":false}' > config.json
+          DEPS='[{"name":"serde","req":"1","features":["derive"],"optional":false,"default_features":true,"target":null,"kind":"normal","registry":"https://github.com/rust-lang/crates.io-index","package":null},{"name":"serde_json","req":"1","features":[],"optional":false,"default_features":true,"target":null,"kind":"normal","registry":"https://github.com/rust-lang/crates.io-index","package":null},{"name":"ed25519-dalek","req":"2","features":["rand_core"],"optional":false,"default_features":true,"target":null,"kind":"normal","registry":"https://github.com/rust-lang/crates.io-index","package":null},{"name":"semver","req":"1","features":[],"optional":false,"default_features":true,"target":null,"kind":"normal","registry":"https://github.com/rust-lang/crates.io-index","package":null},{"name":"time","req":"0.3","features":["formatting"],"optional":false,"default_features":true,"target":null,"kind":"normal","registry":"https://github.com/rust-lang/crates.io-index","package":null},{"name":"tracing","req":"0.1","features":[],"optional":false,"default_features":true,"target":null,"kind":"normal","registry":"https://github.com/rust-lang/crates.io-index","package":null},{"name":"base64","req":"0.21","features":[],"optional":false,"default_features":true,"target":null,"kind":"normal","registry":"https://github.com/rust-lang/crates.io-index","package":null}]'
+          jq -n --arg name "$CRATE" --arg vers "$VERS" --arg cksum "$CKSUM" --argjson deps "$DEPS" '{name:$name,vers:$vers,deps:$deps,cksum:$cksum,features:{},yanked:false}' >> "$INDEX_FILE"
+      - name: Commit and push index
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add config.json li/
+          git diff --staged --quiet || git commit -m "chore(registry): add index entry for license-core ${{ steps.pkg.outputs.vers }}"
+          git push origin HEAD:main || git push origin HEAD:master
