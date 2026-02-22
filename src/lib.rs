@@ -1,7 +1,7 @@
 //! license-core: License validation (Ed25519). DEV vs PROD key by env only; no bypass.
 
 use base64::Engine;
-use ed25519_dalek::{PublicKey, Signature, Verifier};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 /// License payload (tenant_id mandatory).
@@ -25,6 +25,12 @@ pub struct SignedLicenseFile {
     pub signature_base64: String,
 }
 
+/// Canonical JSON serialization for license payload.
+/// Uses deterministic field order from the struct definition and no extra whitespace.
+pub fn serialize_license_canonical(payload: &License) -> Result<String, String> {
+    serde_json::to_string(payload).map_err(|e| format!("Canonical serialization failed: {}", e))
+}
+
 /// Select which public key to use. DEV key only when LICENSE_DEV_MODE=true.
 /// No key is compiled in; both come from environment at runtime.
 fn public_key_base64() -> Result<String, String> {
@@ -39,7 +45,8 @@ fn public_key_base64() -> Result<String, String> {
         })
     } else {
         std::env::var("PROD_PUBLIC_KEY").map_err(|_| {
-            "PROD_PUBLIC_KEY is not set. Production requires a valid production public key.".to_string()
+            "PROD_PUBLIC_KEY is not set. Production requires a valid production public key."
+                .to_string()
         })
     }
 }
@@ -56,7 +63,7 @@ fn verify_ed25519_signature(
     let sig: [u8; 64] = sig_bytes
         .try_into()
         .map_err(|_| "Signature must be 64 bytes")?;
-    let signature = Signature::from_bytes(&sig).map_err(|e| format!("Invalid signature: {}", e))?;
+    let signature = Signature::from_bytes(&sig);
 
     let key_bytes = base64::engine::general_purpose::STANDARD
         .decode(public_key_b64)
@@ -64,10 +71,10 @@ fn verify_ed25519_signature(
     let key_arr: [u8; 32] = key_bytes
         .try_into()
         .map_err(|_| "Public key must be 32 bytes")?;
-    let public_key =
-        PublicKey::from_bytes(&key_arr).map_err(|e| format!("Invalid public key: {}", e))?;
+    let verifying_key =
+        VerifyingKey::from_bytes(&key_arr).map_err(|e| format!("Invalid public key: {}", e))?;
 
-    public_key
+    verifying_key
         .verify(message, &signature)
         .map_err(|_| "Signature verification failed".to_string())?;
     Ok(())
@@ -93,8 +100,16 @@ pub fn validate_license() -> Result<(), String> {
     let path = std::env::var("LICENSE_PATH").unwrap_or_else(|_| "license.json".to_string());
     let contents = std::fs::read_to_string(&path)
         .map_err(|e| format!("Cannot read license file {}: {}", path, e))?;
-    let signed: SignedLicenseFile = serde_json::from_str(&contents)
-        .map_err(|e| format!("Invalid license format: {}", e))?;
+    let signed: SignedLicenseFile =
+        serde_json::from_str(&contents).map_err(|e| format!("Invalid license format: {}", e))?;
+
+    // Canonicalization guard: payload must match canonical serialization exactly.
+    let canonical = serialize_license_canonical(&signed.payload)?;
+    if canonical != signed.signed_payload_utf8 {
+        return Err(
+            "signed_payload_utf8 does not match canonical payload serialization".to_string(),
+        );
+    }
 
     let public_key_b64 = public_key_base64()?;
     verify_ed25519_signature(
@@ -112,10 +127,28 @@ pub fn validate_license() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn sample_license() -> License {
+        License {
+            license_id: "LIC-1".to_string(),
+            tenant_id: "tenant-1".to_string(),
+            issued_at: "2024-01-01T00:00:00Z".to_string(),
+            expires_at: "2099-01-01T00:00:00Z".to_string(),
+            grace_days: 30,
+            platform_version: Some(">=1.0.0".to_string()),
+        }
+    }
 
     #[test]
     fn test_validate_semver() {
         assert!(validate_semver("1.2.3", ">=1.0.0").is_ok());
         assert!(validate_semver("0.9.0", ">=1.0.0").is_err());
+    }
+
+    #[test]
+    fn test_canonical_serialization_is_deterministic() {
+        let license = sample_license();
+        let a = serialize_license_canonical(&license).expect("serialize a");
+        let b = serialize_license_canonical(&license).expect("serialize b");
+        assert_eq!(a, b);
     }
 }

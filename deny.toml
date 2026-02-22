@@ -1,10 +1,25 @@
 # Supply chain: deny wildcards, unknown registries. No git deps.
 [bans]
-multiple_versions = "warn"
+multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = false
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-registry = ["crates-io"]
+# crates.io is allowed by default; allow-registry only needs URLs for additional registries
+
+# Permissive only; GPL/AGPL/LGPL excluded (not in allow). cargo-deny 0.19: only allow + confidence.
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Unlicense",
+    "LicenseRef-Proprietary"
+]
+confidence-threshold = 0.8
