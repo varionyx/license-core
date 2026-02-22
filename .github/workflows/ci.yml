@@ -97,8 +97,14 @@ jobs:
       - name: Generate SBOM (CycloneDX)
         run: |
           cargo install cargo-cyclonedx --version 0.5.7 --locked
-          cargo cyclonedx --format json --override-filename sbom.json
-          echo "SBOM written to sbom.json"
+          cargo cyclonedx --format json --override-filename sbom
+          # Tool may write sbom.json (stem "sbom"), bom.json, or per-package path; normalize to sbom.json
+          if [ -f sbom.json ]; then echo "SBOM at sbom.json"
+          elif [ -f bom.json ]; then cp bom.json sbom.json
+          else
+            F=$(find . -maxdepth 3 \( -name 'sbom.json' -o -name 'bom.json' \) 2>/dev/null | head -1)
+            if [ -n "$F" ]; then cp "$F" sbom.json; else echo "::error::SBOM file not found" && ls -laR && exit 1; fi
+          fi
       - name: Verify SBOM exists
         run: test -f sbom.json
       - name: Upload SBOM
