@@ -94,11 +94,18 @@ jobs:
         run: |
           cargo install cargo-deny --locked
           cargo deny check
-      - name: SBOM
+      - name: Generate SBOM (CycloneDX)
         run: |
-          cargo install cargo-cyclonedx --locked
-          cargo cyclonedx Cargo.toml --output sbom.json
+          cargo install cargo-cyclonedx --version 0.5.7 --locked
+          cargo cyclonedx --format json --override-filename sbom.json
           echo "SBOM written to sbom.json"
+      - name: Verify SBOM exists
+        run: test -f sbom.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
       - name: Security audit (blocking)
         run: |
           cargo install cargo-audit --locked
