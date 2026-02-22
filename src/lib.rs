@@ -1,7 +1,7 @@
 //! license-core: License validation (Ed25519). DEV vs PROD key by env only; no bypass.
 
 use base64::Engine;
-use ed25519_dalek::{PublicKey, Signature, Verifier};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 /// License payload (tenant_id mandatory).
@@ -63,7 +63,7 @@ fn verify_ed25519_signature(
     let sig: [u8; 64] = sig_bytes
         .try_into()
         .map_err(|_| "Signature must be 64 bytes")?;
-    let signature = Signature::from_bytes(&sig).map_err(|e| format!("Invalid signature: {}", e))?;
+    let signature = Signature::from_bytes(&sig);
 
     let key_bytes = base64::engine::general_purpose::STANDARD
         .decode(public_key_b64)
@@ -71,10 +71,10 @@ fn verify_ed25519_signature(
     let key_arr: [u8; 32] = key_bytes
         .try_into()
         .map_err(|_| "Public key must be 32 bytes")?;
-    let public_key =
-        PublicKey::from_bytes(&key_arr).map_err(|e| format!("Invalid public key: {}", e))?;
+    let verifying_key =
+        VerifyingKey::from_bytes(&key_arr).map_err(|e| format!("Invalid public key: {}", e))?;
 
-    public_key
+    verifying_key
         .verify(message, &signature)
         .map_err(|_| "Signature verification failed".to_string())?;
     Ok(())
