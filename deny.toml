@@ -7,4 +7,4 @@ allow-wildcard-paths = false
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-registry = ["crates-io"]
+# crates.io is allowed by default; allow-registry only needs URLs for additional registries
