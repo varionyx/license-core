@@ -51,8 +51,9 @@ fn public_key_base64() -> Result<String, String> {
     }
 }
 
-/// Verify Ed25519 signature. Always runs; never skipped.
-fn verify_ed25519_signature(
+/// Verify Ed25519 signature. Public API for Ed25519 signature validation.
+/// Message and signature_base64 must match the signed payload; public_key_base64 is the Ed25519 public key (32 bytes, base64).
+pub fn verify_ed25519_signature(
     message: &[u8],
     signature_b64: &str,
     public_key_b64: &str,
@@ -150,5 +151,25 @@ mod tests {
         let a = serialize_license_canonical(&license).expect("serialize a");
         let b = serialize_license_canonical(&license).expect("serialize b");
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_verify_ed25519_signature_accepts_valid() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let msg = b"test message";
+        let signing_key = SigningKey::from_bytes(&ed25519_dalek::SecretKey::from([1u8; 32]));
+        let sig = signing_key.sign(msg);
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+        let pub_b64 = base64::engine::general_purpose::STANDARD
+            .encode(signing_key.verifying_key().to_bytes());
+        assert!(verify_ed25519_signature(msg, &sig_b64, &pub_b64).is_ok());
+    }
+
+    #[test]
+    fn test_verify_ed25519_signature_rejects_tampered() {
+        let msg = b"test message";
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode([0u8; 64]);
+        let pub_b64 = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
+        assert!(verify_ed25519_signature(msg, &sig_b64, &pub_b64).is_err());
     }
 }
