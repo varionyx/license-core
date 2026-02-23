@@ -143,6 +143,20 @@ mod tests {
     fn test_validate_semver() {
         assert!(validate_semver("1.2.3", ">=1.0.0").is_ok());
         assert!(validate_semver("0.9.0", ">=1.0.0").is_err());
+        // exact match
+        assert!(validate_semver("1.0.0", "1.0.0").is_ok());
+        assert!(validate_semver("1.0.1", "=1.0.0").is_err());
+        // caret and tilde ranges
+        assert!(validate_semver("1.2.3", "^1.0.0").is_ok());
+        assert!(validate_semver("2.0.0", "^1.0.0").is_err());
+        assert!(validate_semver("1.2.3", "~1.2.0").is_ok());
+        assert!(validate_semver("1.3.0", "~1.2.0").is_err());
+        // prerelease handling: must match requirement including pre
+        assert!(validate_semver("1.2.3-alpha.1", ">=1.2.3-alpha.1, <1.2.3").is_ok());
+        assert!(validate_semver("1.2.3-alpha.1", ">=1.2.3").is_err());
+        // invalid inputs surface errors
+        assert!(validate_semver("not-a-version", ">=1.0.0").is_err());
+        assert!(validate_semver("1.0.0", "not-a-req").is_err());
     }
 
     #[test]
